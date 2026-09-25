@@ -172,8 +172,15 @@ class PainelStreamlit:
         with col_grafico:
             st.markdown("#### 📊 Distribuição dos Tópicos Mais Populares")
             if not df_agr.empty:
-                contagem = df_agr["topico"].value_counts().head(10)
-                st.bar_chart(contagem, horizontal=True)
+                df_topicos = df_agr["topico"].value_counts().head(10).reset_index()
+                df_topicos.columns = ["topico", "quantidade"]
+                st.bar_chart(
+                    df_topicos,
+                    x="quantidade",
+                    y="topico",
+                    horizontal=True,
+                    sort="-quantidade",
+                )
             else:
                 st.info("Nenhum agrupamento disponível para exibir o gráfico.")
 
@@ -405,8 +412,20 @@ class PainelStreamlit:
                     st.warning("Não foi possível gerar a imagem da nuvem de palavras.")
 
                 st.markdown("#### 📊 Termos de Maior Destaque")
-                serie_freq = pd.Series(freq_int).sort_values(ascending=False).head(15)
-                st.bar_chart(serie_freq, horizontal=True)
+                df_termos = (
+                    pd.Series(freq_int)
+                    .sort_values(ascending=False)
+                    .head(15)
+                    .reset_index()
+                )
+                df_termos.columns = ["termo", "frequencia"]
+                st.bar_chart(
+                    df_termos,
+                    x="frequencia",
+                    y="termo",
+                    horizontal=True,
+                    sort="-frequencia",
+                )
 
                 with st.expander(f"Ver Frequências Brutas ({escolha})"):
                     st.json(freq_dados)
@@ -448,8 +467,15 @@ class PainelStreamlit:
                 df_modelo["titulo_video"] = df_modelo["id_video"].map(self.mapa_videos).fillna(df_modelo["id_video"])
 
             st.markdown(f"#### Tópicos e Distribuição ({modelo_selecionado})")
-            dist = df_modelo["topico"].value_counts()
-            st.bar_chart(dist, horizontal=True)
+            df_dist = df_modelo["topico"].value_counts().reset_index()
+            df_dist.columns = ["topico", "quantidade"]
+            st.bar_chart(
+                df_dist,
+                x="quantidade",
+                y="topico",
+                horizontal=True,
+                sort="-quantidade",
+            )
             st.markdown("#### Documentos Associados")
             colunas_doc = [
                 c
