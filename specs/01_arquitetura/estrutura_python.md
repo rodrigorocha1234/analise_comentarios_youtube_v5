@@ -1,0 +1,55 @@
+# Estrutura Python
+
+```text
+src/
+  coleta/
+    coletor_youtube.py
+    coletor_video.py
+    coletor_comentario.py
+    coletor_resposta.py
+  dominio/
+    canal.py
+    video.py
+    comentario.py
+    resposta.py
+    topico.py
+    agrupamento.py
+  armazenamento/
+    armazenamento_objeto.py
+    adaptador_s3.py
+  processamento/
+    processador_texto.py
+    gerador_embedding.py
+    tratador_stopword.py
+  agrupadores/
+    estrategia_agrupamento.py
+    agrupador_kmeans.py
+    agrupador_minibatch.py
+    agrupador_dbscan.py
+    agrupador_hdbscan.py
+    agrupador_optics.py
+    agrupador_aglomerativo.py
+    agrupador_gaussiano.py
+    agrupador_espectral.py
+    agrupador_birch.py
+    agrupador_afinidade.py
+    agrupador_media.py
+    agrupador_bertopic.py
+  topicos/
+    nomeador_topico.py
+    calculador_tendencia.py
+    associador_comentario.py
+  observadores/
+    observador.py
+    observador_mlflow.py
+  fabricas/
+    fabrica_agrupador.py
+  servicos/
+    servico_coleta.py
+    servico_agrupamento.py
+    servico_tendencia.py
+    servico_modelo.py
+  painel/
+    painel_streamlit.py
+```
+Uma classe por arquivo. `__init__` e métodos impostos por frameworks são exceções à regra de duas palavras.

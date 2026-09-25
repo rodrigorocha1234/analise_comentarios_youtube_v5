@@ -1,0 +1,1 @@
+"""Pacote de fábricas GoF."""
