@@ -4,6 +4,13 @@ from typing import Dict, List, Optional
 import pandas as pd
 import streamlit as st
 
+import sys
+from pathlib import Path
+
+_raiz_projeto = str(Path(__file__).resolve().parents[2])
+if _raiz_projeto not in sys.path:
+    sys.path.insert(0, _raiz_projeto)
+
 from src.armazenamento.adaptador_s3 import AdaptadorS3
 
 logger = logging.getLogger(__name__)
