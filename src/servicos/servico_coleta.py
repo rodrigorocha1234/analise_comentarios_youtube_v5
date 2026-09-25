@@ -115,10 +115,25 @@ class ServicoColeta:
         # 1. Coleta metadados dos canais e persiste na Bronze
         canais_persistir: List[Canal] = []
         for c_id in canais:
+            titulo = f"Canal {c_id}"
+            descricao = ""
+            try:
+                resposta = self.cliente_youtube.executar_requisicao(
+                    "channels", {"part": "snippet", "id": c_id}
+                )
+                itens = resposta.get("items")
+                if isinstance(itens, list) and itens:
+                    item_snip = itens[0].get("snippet") if isinstance(itens[0], dict) else {}
+                    if isinstance(item_snip, dict):
+                        titulo = str(item_snip.get("title", titulo))
+                        descricao = str(item_snip.get("description", descricao))
+            except Exception as erro:
+                logger.warning("Falha ao buscar metadados do canal %s na API: %s", c_id, erro)
+
             c = Canal(
                 id_canal=c_id,
-                titulo=f"Canal {c_id}",
-                descricao="",
+                titulo=titulo,
+                descricao=descricao,
                 data_coleta=data_coleta,
             )
             canais_persistir.append(c)

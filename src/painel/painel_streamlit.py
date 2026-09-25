@@ -1,11 +1,11 @@
+import json
 import logging
 import os
-from typing import Dict, List, Optional
-import pandas as pd
-import streamlit as st
-
 import sys
 from pathlib import Path
+from typing import Dict, List, Optional, Tuple
+import pandas as pd
+import streamlit as st
 
 _raiz_projeto = str(Path(__file__).resolve().parents[2])
 if _raiz_projeto not in sys.path:
@@ -21,6 +21,8 @@ class PainelStreamlit:
 
     def __init__(self) -> None:
         self.armazenamento = AdaptadorS3()
+        self.mapa_canais: Dict[str, str] = {}
+        self.mapa_videos: Dict[str, str] = {}
 
     def carregar_dados(self, prefixo: str) -> pd.DataFrame:
         """Carrega e concatena DataFrames Parquet armazenados sob o prefixo no MinIO."""
@@ -43,6 +45,62 @@ class PainelStreamlit:
             logger.warning("Erro ao listar dados de %s: %s", prefixo, erro)
             return pd.DataFrame()
 
+    def carregar_metadados(self) -> None:
+        """Carrega mapeamentos de IDs de canais e vídeos para seus respectivos nomes e títulos."""
+        try:
+            df_canais = self.carregar_dados("bronze/canais/")
+            if not df_canais.empty and "id_canal" in df_canais.columns and "titulo" in df_canais.columns:
+                self.mapa_canais = dict(
+                    zip(df_canais["id_canal"].astype(str), df_canais["titulo"].astype(str))
+                )
+
+            df_videos = self.carregar_dados("bronze/videos/")
+            if not df_videos.empty and "id_video" in df_videos.columns and "titulo" in df_videos.columns:
+                self.mapa_videos = dict(
+                    zip(df_videos["id_video"].astype(str), df_videos["titulo"].astype(str))
+                )
+        except Exception as erro:
+            logger.warning("Erro ao carregar metadados de canais e vídeos: %s", erro)
+
+    def enriquecer_dados(
+        self, df_agr: pd.DataFrame, df_ten: pd.DataFrame
+    ) -> Tuple[pd.DataFrame, pd.DataFrame]:
+        """Adiciona nomes legíveis de canais e vídeos aos DataFrames analíticos."""
+        if not df_agr.empty:
+            if "id_canal" in df_agr.columns:
+                df_agr["nome_canal"] = df_agr["id_canal"].map(self.mapa_canais).fillna(df_agr["id_canal"])
+            if "id_video" in df_agr.columns:
+                df_agr["titulo_video"] = df_agr["id_video"].map(self.mapa_videos).fillna(df_agr["id_video"])
+
+        if not df_ten.empty:
+            df_ten["nome_canal"] = ""
+            df_ten["titulo_video"] = ""
+            df_ten["alvo_legivel"] = ""
+
+            for idx, linha in df_ten.iterrows():
+                escopo = str(linha.get("escopo", ""))
+                identificador = str(linha.get("identificador_escopo", ""))
+
+                if escopo == "canal":
+                    nome_c = self.mapa_canais.get(identificador, identificador)
+                    df_ten.at[idx, "nome_canal"] = nome_c
+                    df_ten.at[idx, "alvo_legivel"] = f"📺 {nome_c}"
+                elif escopo == "video":
+                    titulo_v = self.mapa_videos.get(identificador, identificador)
+                    df_ten.at[idx, "titulo_video"] = titulo_v
+                    df_ten.at[idx, "alvo_legivel"] = f"🎥 {titulo_v}"
+                elif escopo == "canal_video":
+                    partes = identificador.split("__")
+                    c_id = partes[0] if len(partes) > 0 else ""
+                    v_id = partes[1] if len(partes) > 1 else ""
+                    nome_c = self.mapa_canais.get(c_id, c_id)
+                    titulo_v = self.mapa_videos.get(v_id, v_id)
+                    df_ten.at[idx, "nome_canal"] = nome_c
+                    df_ten.at[idx, "titulo_video"] = titulo_v
+                    df_ten.at[idx, "alvo_legivel"] = f"📺 {nome_c} | 🎥 {titulo_v}"
+
+        return df_agr, df_ten
+
     def renderizar_cabecalho(self) -> None:
         """Renderiza o cabeçalho e descrição da plataforma."""
         st.title("🎯 Radar de Tópicos e Tendências do YouTube")
@@ -52,13 +110,32 @@ class PainelStreamlit:
         )
 
     def renderizar_filtros(self, df_agr: pd.DataFrame) -> Dict[str, str]:
-        """Renderiza barra lateral com filtros dinâmicos."""
+        """Renderiza barra lateral com filtros dinâmicos contendo nomes e títulos legíveis."""
         st.sidebar.header("🔍 Filtros de Visualização")
-        canais = ["Todos"] + sorted(list(df_agr["id_canal"].dropna().unique())) if not df_agr.empty else ["Todos"]
-        canal_selecionado = st.sidebar.selectbox("Canal", canais)
 
-        videos = ["Todos"] + sorted(list(df_agr["id_video"].dropna().unique())) if not df_agr.empty else ["Todos"]
-        video_selecionado = st.sidebar.selectbox("Vídeo", videos)
+        mapa_canais_filtro: Dict[str, str] = {"Todos": "Todos"}
+        if not df_agr.empty and "id_canal" in df_agr.columns:
+            for c_id in sorted(df_agr["id_canal"].dropna().unique()):
+                nome = self.mapa_canais.get(str(c_id), str(c_id))
+                rotulo = f"📺 {nome} ({c_id})" if nome != c_id else f"📺 {c_id}"
+                mapa_canais_filtro[rotulo] = str(c_id)
+
+        escolha_canal = st.sidebar.selectbox("Canal", list(mapa_canais_filtro.keys()))
+        canal_selecionado = mapa_canais_filtro[escolha_canal]
+
+        mapa_videos_filtro: Dict[str, str] = {"Todos": "Todos"}
+        if not df_agr.empty and "id_video" in df_agr.columns:
+            df_base_videos = df_agr
+            if canal_selecionado != "Todos":
+                df_base_videos = df_agr[df_agr["id_canal"] == canal_selecionado]
+
+            for v_id in sorted(df_base_videos["id_video"].dropna().unique()):
+                titulo = self.mapa_videos.get(str(v_id), str(v_id))
+                rotulo = f"🎥 {titulo[:45]}... ({v_id})" if len(titulo) > 45 else f"🎥 {titulo} ({v_id})"
+                mapa_videos_filtro[rotulo] = str(v_id)
+
+        escolha_video = st.sidebar.selectbox("Vídeo", list(mapa_videos_filtro.keys()))
+        video_selecionado = mapa_videos_filtro[escolha_video]
 
         modelos = ["Todos"] + sorted(list(df_agr["modelo"].dropna().unique())) if not df_agr.empty else ["Todos"]
         modelo_selecionado = st.sidebar.selectbox("Algoritmo", modelos)
@@ -87,6 +164,11 @@ class PainelStreamlit:
             m1.metric("Vídeos", total_videos)
             m2.metric("Canais", total_canais)
 
+            if self.mapa_canais:
+                st.markdown("**📺 Canais Monitorados:**")
+                for c_id, c_nome in self.mapa_canais.items():
+                    st.write(f"- **{c_nome}** (`{c_id}`)")
+
         with col_grafico:
             st.markdown("#### 📊 Distribuição dos Tópicos Mais Populares")
             if not df_agr.empty:
@@ -106,32 +188,89 @@ class PainelStreamlit:
         janela_sel = st.selectbox("Janela Temporal (Dias)", janelas) if janelas else None
 
         df_filtrado = df_ten[df_ten["janela_dias"] == janela_sel] if janela_sel is not None else df_ten
-        st.dataframe(df_filtrado, use_container_width=True)
+        colunas_exibir = [
+            c
+            for c in [
+                "alvo_legivel",
+                "escopo",
+                "topico",
+                "score_tendencia",
+                "volume_atual",
+                "crescimento_absoluto",
+                "aceleracao",
+                "janela_dias",
+            ]
+            if c in df_filtrado.columns
+        ]
+        st.dataframe(df_filtrado[colunas_exibir] if colunas_exibir else df_filtrado, use_container_width=True)
 
     def renderizar_videos(self, df_ten: pd.DataFrame) -> None:
-        """Aba 3: Vídeos."""
+        """Aba 3: Vídeos com títulos legíveis."""
         st.subheader("🎥 Tendências por Vídeo")
         if not df_ten.empty and "escopo" in df_ten.columns:
             df_v = df_ten[df_ten["escopo"] == "video"]
-            st.dataframe(df_v, use_container_width=True)
+            colunas_exibir = [
+                c
+                for c in [
+                    "titulo_video",
+                    "topico",
+                    "score_tendencia",
+                    "volume_atual",
+                    "crescimento_absoluto",
+                    "aceleracao",
+                    "janela_dias",
+                    "posicao_ranking",
+                ]
+                if c in df_v.columns
+            ]
+            st.dataframe(df_v[colunas_exibir] if colunas_exibir else df_v, use_container_width=True)
         else:
             st.info("Sem dados de vídeo disponíveis.")
 
     def renderizar_canais(self, df_ten: pd.DataFrame) -> None:
-        """Aba 4: Canais."""
+        """Aba 4: Canais com nomes legíveis."""
         st.subheader("📺 Tendências por Canal")
         if not df_ten.empty and "escopo" in df_ten.columns:
             df_c = df_ten[df_ten["escopo"] == "canal"]
-            st.dataframe(df_c, use_container_width=True)
+            colunas_exibir = [
+                c
+                for c in [
+                    "nome_canal",
+                    "topico",
+                    "score_tendencia",
+                    "volume_atual",
+                    "crescimento_absoluto",
+                    "aceleracao",
+                    "janela_dias",
+                    "posicao_ranking",
+                ]
+                if c in df_c.columns
+            ]
+            st.dataframe(df_c[colunas_exibir] if colunas_exibir else df_c, use_container_width=True)
         else:
             st.info("Sem dados de canal disponíveis.")
 
     def renderizar_cruzamento(self, df_ten: pd.DataFrame) -> None:
-        """Aba 5: Canal × Vídeo."""
+        """Aba 5: Canal × Vídeo com nomes legíveis."""
         st.subheader("🔗 Tendências por Canal × Vídeo")
         if not df_ten.empty and "escopo" in df_ten.columns:
             df_cv = df_ten[df_ten["escopo"] == "canal_video"]
-            st.dataframe(df_cv, use_container_width=True)
+            colunas_exibir = [
+                c
+                for c in [
+                    "nome_canal",
+                    "titulo_video",
+                    "topico",
+                    "score_tendencia",
+                    "volume_atual",
+                    "crescimento_absoluto",
+                    "aceleracao",
+                    "janela_dias",
+                    "posicao_ranking",
+                ]
+                if c in df_cv.columns
+            ]
+            st.dataframe(df_cv[colunas_exibir] if colunas_exibir else df_cv, use_container_width=True)
         else:
             st.info("Sem dados de cruzamento canal × vídeo.")
 
@@ -145,18 +284,31 @@ class PainelStreamlit:
         st.dataframe(resumo, use_container_width=True)
 
     def renderizar_clusters(self, df_agr: pd.DataFrame) -> None:
-        """Aba 7: Clusters."""
+        """Aba 7: Clusters com canal e título do vídeo."""
         st.subheader("🧩 Detalhes dos Clusters")
         if df_agr.empty:
             st.info("Nenhum agrupamento carregado.")
             return
+        colunas_exibir = [
+            c
+            for c in [
+                "nome_canal",
+                "titulo_video",
+                "numero_cluster",
+                "topico",
+                "probabilidade",
+                "modelo",
+                "texto_original",
+            ]
+            if c in df_agr.columns
+        ]
         st.dataframe(
-            df_agr[["id_documento", "numero_cluster", "topico", "probabilidade", "modelo"]],
+            df_agr[colunas_exibir] if colunas_exibir else df_agr,
             use_container_width=True,
         )
 
     def renderizar_comentarios(self, df_agr: pd.DataFrame) -> None:
-        """Aba 8: Comentários e Respostas."""
+        """Aba 8: Comentários e Respostas com nomes de canais e títulos dos vídeos."""
         st.subheader("💬 Navegação de Comentários e Respostas")
         if df_agr.empty:
             st.info("Sem comentários para exibir.")
@@ -165,7 +317,13 @@ class PainelStreamlit:
         comentarios_pais = df_agr[df_agr["tipo"] == "COMENTARIO"]
         for _, com in comentarios_pais.head(20).iterrows():
             id_com = str(com.get("id_comentario", ""))
-            with st.expander(f"Comentário: {com.get('texto_original', '')[:80]}... (Tópico: {com.get('topico')})"):
+            titulo_v = str(com.get("titulo_video", ""))
+            nome_c = str(com.get("nome_canal", ""))
+            rotulo = f"[{nome_c}] {titulo_v[:35]}... | {com.get('texto_original', '')[:50]}... (Tópico: {com.get('topico')})"
+
+            with st.expander(rotulo):
+                st.write(f"**Canal:** {nome_c}")
+                st.write(f"**Vídeo:** {titulo_v}")
                 st.write(f"**Autor:** {com.get('autor', 'Desconhecido')}")
                 st.write(f"**Texto:** {com.get('texto_original', '')}")
                 st.write(f"**Cluster:** {com.get('numero_cluster')} | **Score:** {com.get('probabilidade')}")
@@ -184,7 +342,6 @@ class PainelStreamlit:
             chaves_json = [c for c in chaves if c.endswith(".json")]
             if chaves_json:
                 conteudo = self.armazenamento.ler_objeto(chaves_json[-1])
-                import json
                 dados = json.loads(conteudo.decode("utf-8"))
                 for categoria, freq in dados.items():
                     with st.expander(f"Frequências - {categoria}"):
@@ -192,6 +349,7 @@ class PainelStreamlit:
             else:
                 st.info("Nenhuma frequência de palavras persistida ainda.")
         except Exception as erro:
+            logger.warning("Erro ao carregar nuvens de palavras: %s", erro)
             st.warning(f"Erro ao carregar nuvens de palavras: {erro}")
 
     def renderizar_comparacao(self) -> None:
@@ -220,11 +378,28 @@ class PainelStreamlit:
             st.dataframe(df_metrica, use_container_width=True)
 
         if not df_modelo.empty:
+            if "id_canal" in df_modelo.columns:
+                df_modelo["nome_canal"] = df_modelo["id_canal"].map(self.mapa_canais).fillna(df_modelo["id_canal"])
+            if "id_video" in df_modelo.columns:
+                df_modelo["titulo_video"] = df_modelo["id_video"].map(self.mapa_videos).fillna(df_modelo["id_video"])
+
             st.markdown(f"#### Tópicos e Distribuição ({modelo_selecionado})")
             dist = df_modelo["topico"].value_counts()
             st.bar_chart(dist, horizontal=True)
             st.markdown("#### Documentos Associados")
-            st.dataframe(df_modelo[["numero_cluster", "topico", "probabilidade", "texto_original"]], use_container_width=True)
+            colunas_doc = [
+                c
+                for c in [
+                    "nome_canal",
+                    "titulo_video",
+                    "numero_cluster",
+                    "topico",
+                    "probabilidade",
+                    "texto_original",
+                ]
+                if c in df_modelo.columns
+            ]
+            st.dataframe(df_modelo[colunas_doc] if colunas_doc else df_modelo, use_container_width=True)
         else:
             st.info(f"O modelo {modelo_selecionado} ainda não possui execuções gravadas no Gold.")
 
@@ -248,9 +423,19 @@ class PainelStreamlit:
         """Coordena a montagem e exibição do dashboard Streamlit."""
         st.set_page_config(page_title="Radar de Tópicos YouTube", layout="wide", page_icon="🎯")
         self.renderizar_cabecalho()
+        self.carregar_metadados()
 
         df_agr = self.carregar_dados("gold/agrupamentos/")
         df_ten = self.carregar_dados("gold/tendencias_")
+        df_agr, df_ten = self.enriquecer_dados(df_agr, df_ten)
+
+        filtros = self.renderizar_filtros(df_agr)
+        if filtros["canal"] != "Todos" and not df_agr.empty and "id_canal" in df_agr.columns:
+            df_agr = df_agr[df_agr["id_canal"] == filtros["canal"]]
+        if filtros["video"] != "Todos" and not df_agr.empty and "id_video" in df_agr.columns:
+            df_agr = df_agr[df_agr["id_video"] == filtros["video"]]
+        if filtros["modelo"] != "Todos" and not df_agr.empty and "modelo" in df_agr.columns:
+            df_agr = df_agr[df_agr["modelo"].str.lower() == filtros["modelo"].lower()]
 
         abas = st.tabs(
             [
