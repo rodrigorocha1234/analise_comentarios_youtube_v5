@@ -72,21 +72,28 @@ class PainelStreamlit:
     def renderizar_visao(self, df_agr: pd.DataFrame, df_ten: pd.DataFrame) -> None:
         """Aba 1: Visão Geral."""
         st.subheader("📊 Visão Geral do Ecossistema")
-        col1, col2, col3, col4 = st.columns(4)
+        col_metricas, col_grafico = st.columns([1, 2])
+
         total_docs = len(df_agr) if not df_agr.empty else 0
         total_topicos = df_agr["topico"].nunique() if not df_agr.empty else 0
         total_videos = df_agr["id_video"].nunique() if not df_agr.empty else 0
         total_canais = df_agr["id_canal"].nunique() if not df_agr.empty else 0
 
-        col1.metric("Total Documentos", total_docs)
-        col2.metric("Tópicos Distintos", total_topicos)
-        col3.metric("Vídeos Analisados", total_videos)
-        col4.metric("Canais Monitorados", total_canais)
+        with col_metricas:
+            st.markdown("#### 📌 Métricas Gerais")
+            m1, m2 = st.columns(2)
+            m1.metric("Documentos", total_docs)
+            m2.metric("Tópicos", total_topicos)
+            m1.metric("Vídeos", total_videos)
+            m2.metric("Canais", total_canais)
 
-        if not df_agr.empty:
-            st.write("### Distribuição dos Tópicos Mais Populares")
-            contagem = df_agr["topico"].value_counts().head(10)
-            st.bar_chart(contagem)
+        with col_grafico:
+            st.markdown("#### 📊 Distribuição dos Tópicos Mais Populares")
+            if not df_agr.empty:
+                contagem = df_agr["topico"].value_counts().head(10)
+                st.bar_chart(contagem)
+            else:
+                st.info("Nenhum agrupamento disponível para exibir o gráfico.")
 
     def renderizar_tendencias(self, df_ten: pd.DataFrame) -> None:
         """Aba 2: Tendências."""
