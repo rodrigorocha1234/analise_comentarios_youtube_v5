@@ -56,9 +56,10 @@ class AgrupadorBertopic(EstrategiaAgrupamento):
             prediction_data=True,
         )
 
-        # CountVectorizer com ngram_range=(1, 1) para garantir exclusivamente PALAVRAS ÚNICAS
+        # CountVectorizer com ngram_range=(1, 1) e token_pattern alfabético para PALAVRAS ÚNICAS
         self.vetorizador = CountVectorizer(
             ngram_range=(1, 1),
+            token_pattern=r"(?u)\b[a-zA-ZÀ-ÿ]{3,}\b",
             min_df=min_df,
             max_df=1.0 if max_df < 1.0 else max_df,
             stop_words=stopwords,
@@ -84,6 +85,11 @@ class AgrupadorBertopic(EstrategiaAgrupamento):
             return np.array([], dtype=np.int32)
 
         n_amostras = len(textos)
+        if n_amostras < 5:
+            self.rotulos = np.zeros(n_amostras, dtype=np.int32)
+            self.probabilidades = np.ones(n_amostras, dtype=np.float32)
+            return self.rotulos
+
         # Ajusta parâmetros dinamicamente para volumes pequenos em testes
         if n_amostras < self.min_cluster_size:
             tamanho_ajustado = max(2, n_amostras // 2)

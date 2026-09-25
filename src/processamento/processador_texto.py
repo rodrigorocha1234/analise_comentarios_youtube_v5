@@ -35,18 +35,17 @@ class ProcessadorTexto:
 
     def extrair_lemas(self, doc_spacy: spacy.tokens.Doc) -> str:
         """Extrai lemas não-stopword preservando grafia original dos acentos."""
-        stopwords = self.tratador_stopword.obter_stopwords()
         lemas: List[str] = []
         for token in doc_spacy:
             if token.is_punct or token.is_space:
                 continue
             texto_token = token.text.strip()
-            if not texto_token or len(texto_token) < 2:
+            if not texto_token or len(texto_token) < 3:
                 continue
-            if texto_token.lower() in stopwords:
+            if self.tratador_stopword.verificar_stopword(texto_token):
                 continue
             lema = token.lemma_.strip()
-            if lema and lema.lower() not in stopwords:
+            if lema and not self.tratador_stopword.verificar_stopword(lema):
                 lemas.append(lema)
             else:
                 lemas.append(texto_token)

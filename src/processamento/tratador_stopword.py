@@ -67,7 +67,7 @@ class TratadorStopword:
         p_min = palavra.strip().lower()
         if len(p_min) < 3:
             return True
-        if p_min.isdigit() or bool(re.match(r"^\d+$", p_min)):
+        if bool(re.search(r"\d", p_min)):
             return True
         if bool(re.match(r"^(k{2,}|h[aeiou]{2,}|rs{2,})$", p_min)):
             return True

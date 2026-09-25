@@ -42,10 +42,17 @@ class OrquestradorPipeline:
         # 1. Coleta Bronze
         comentarios, respostas = self.servico_coleta.executar_coleta()
 
-        if not comentarios and not respostas:
+        if len(comentarios) + len(respostas) < 10:
             data_hoje = datetime.now(timezone.utc).strftime("%Y-%m-%d")
-            logger.info("Coleta sem itens novos. Carregando dados da camada Bronze...")
-            comentarios, respostas = self.servico_coleta.carregar_bronze(data_hoje)
+            logger.info(
+                "Lote incremental reduzido (%d itens). Carregando corpus consolidado da camada Bronze...",
+                len(comentarios) + len(respostas),
+            )
+            comentarios_acum, respostas_acum = self.servico_coleta.carregar_bronze(data_hoje)
+            if len(comentarios_acum) > len(comentarios):
+                comentarios = comentarios_acum
+            if len(respostas_acum) > len(respostas):
+                respostas = respostas_acum
 
         if not comentarios and not respostas:
             logger.warning("Nenhum comentário ou resposta disponível para processamento nesta execução.")

@@ -27,6 +27,7 @@ class ServicoTendencia:
     ) -> None:
         self.configuracao = configuracao
         self.armazenamento = armazenamento
+        self.publicador = publicador
         self.tratador_stopword = TratadorStopword(self.configuracao.stopwords_adicionais)
         self.calculador = CalculadorTendencia(
             self.configuracao.janelas_dias,
