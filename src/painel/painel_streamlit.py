@@ -91,7 +91,7 @@ class PainelStreamlit:
             st.markdown("#### 📊 Distribuição dos Tópicos Mais Populares")
             if not df_agr.empty:
                 contagem = df_agr["topico"].value_counts().head(10)
-                st.bar_chart(contagem)
+                st.bar_chart(contagem, horizontal=True)
             else:
                 st.info("Nenhum agrupamento disponível para exibir o gráfico.")
 
@@ -222,7 +222,7 @@ class PainelStreamlit:
         if not df_modelo.empty:
             st.markdown(f"#### Tópicos e Distribuição ({modelo_selecionado})")
             dist = df_modelo["topico"].value_counts()
-            st.bar_chart(dist)
+            st.bar_chart(dist, horizontal=True)
             st.markdown("#### Documentos Associados")
             st.dataframe(df_modelo[["numero_cluster", "topico", "probabilidade", "texto_original"]], use_container_width=True)
         else:
