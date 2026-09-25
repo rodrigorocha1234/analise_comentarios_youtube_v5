@@ -48,7 +48,7 @@ hdbscan:
 
 count_vectorizer:
   ngram_min: 1
-  ngram_max: 2
+  ngram_max: 1
   min_df: 1
   max_df: 0.90
   max_features: 10000

@@ -1,7 +1,7 @@
 import collections
 import logging
 import re
-from typing import Dict, List, Optional, Set, Tuple
+from typing import Dict, List, Optional, Tuple
 import numpy as np
 
 from src.dominio.topico import Topico
@@ -11,21 +11,19 @@ logger = logging.getLogger(__name__)
 
 
 class NomeadorTopico:
-    """Nomeia tópicos atribuindo exatamente UMA palavra representativa preservando acentos Unicode."""
+    """Nomeia tópicos atribuindo rigorosamente UMA palavra representativa única sem stopwords."""
 
     def __init__(self, tratador_stopword: TratadorStopword) -> None:
         self.tratador_stopword = tratador_stopword
 
     def extrair_candidatas(self, textos: List[str]) -> List[str]:
-        """Extrai palavras candidatas de uma lista de textos removendo pontuação e stopwords."""
-        stopwords = self.tratador_stopword.obter_stopwords()
+        """Extrai palavras candidatas de uma lista de textos removendo pontuação, números e stopwords."""
         palavras_validas: List[str] = []
         for texto in textos:
-            # Preserva caracteres acentuados latinos [a-zA-ZÀ-ÿ]
+            # Preserva caracteres acentuados latinos [a-zA-ZÀ-ÿ], rejeita números e símbolos
             tokens = re.findall(r"\b[a-zA-ZÀ-ÿ]{3,}\b", texto)
             for t in tokens:
-                p_min = t.lower()
-                if p_min not in stopwords:
+                if not self.tratador_stopword.verificar_stopword(t):
                     palavras_validas.append(t)
         return palavras_validas
 
@@ -45,8 +43,9 @@ class NomeadorTopico:
 
         scores: List[Tuple[str, float]] = []
         for p_min, freq_c in contador_cluster.items():
+            if self.tratador_stopword.verificar_stopword(p_min):
+                continue
             freq_f = palavras_fundo.get(p_min, 1)
-            # TF-IDF aproximado por contraste de proporção
             tf = freq_c / total_cluster
             idf = np.log((total_fundo + 1.0) / (freq_f + 1.0)) + 1.0
             relevancia = float(tf * idf)
@@ -63,7 +62,7 @@ class NomeadorTopico:
         palavras_fundo: collections.Counter,
         palavras_bertopic: Optional[List[Tuple[str, float]]] = None,
     ) -> Topico:
-        """Gera um Topico com exatamente UMA palavra representativa e palavras auxiliares."""
+        """Gera um Topico com exatamente UMA palavra representativa única sem stopwords."""
         if numero_cluster == -1:
             return Topico(
                 numero_cluster=-1,
@@ -77,32 +76,43 @@ class NomeadorTopico:
         palavra_escolhida = ""
         score_maximo = 0.0
 
+        # 1. Avalia candidatos do BERTopic se disponíveis
         if palavras_bertopic and len(palavras_bertopic) > 0:
-            stopwords = self.tratador_stopword.obter_stopwords()
             for cand, score in palavras_bertopic:
-                cand_limpa = re.sub(r"[^\wÀ-ÿ]", "", cand).strip()
-                if cand_limpa and " " not in cand_limpa and cand_limpa.lower() not in stopwords:
+                # Remove caracteres especiais e seleciona a primeira palavra
+                cand_limpa = re.sub(r"[^\wÀ-ÿ]", "", cand).strip().split()[0] if cand else ""
+                if cand_limpa and not self.tratador_stopword.verificar_stopword(cand_limpa):
                     if not palavra_escolhida:
                         palavra_escolhida = cand_limpa
-                        score_maximo = score
-                    palavras_aux.append(cand_limpa)
+                        score_maximo = float(score)
+                    if cand_limpa not in palavras_aux:
+                        palavras_aux.append(cand_limpa)
                 if len(palavras_aux) >= 10:
                     break
 
+        # 2. Se não houver do BERTopic ou todos forem stopwords, usa ranking c-TF-IDF local
         if not palavra_escolhida:
             candidatas = self.extrair_candidatas(textos_cluster)
             ranking = self.calcular_relevancia(candidatas, palavras_fundo)
-            if ranking:
-                palavra_escolhida = ranking[0][0]
-                score_maximo = ranking[0][1]
-                palavras_aux = [r[0] for r in ranking[:10]]
-            else:
-                palavra_escolhida = f"Tópico_{numero_cluster}"
-                score_maximo = 1.0
-                palavras_aux = [palavra_escolhida]
+            for r_palavra, r_score in ranking:
+                r_limpa = re.sub(r"[^\wÀ-ÿ]", "", r_palavra).strip().split()[0] if r_palavra else ""
+                if r_limpa and not self.tratador_stopword.verificar_stopword(r_limpa):
+                    if not palavra_escolhida:
+                        palavra_escolhida = r_limpa
+                        score_maximo = r_score
+                    if r_limpa not in palavras_aux:
+                        palavras_aux.append(r_limpa)
+                if len(palavras_aux) >= 10:
+                    break
 
-        # Garante exatamente UMA palavra sem espaços e preservando acentos
-        palavra_final = palavra_escolhida.split()[0].strip()
+        # 3. Fallback de garantia sem stopwords
+        if not palavra_escolhida:
+            palavra_escolhida = f"Tema_{numero_cluster}"
+            score_maximo = 1.0
+            palavras_aux = [palavra_escolhida]
+
+        # Garante estritamente UMA palavra única sem espaços
+        palavra_final = re.sub(r"[^\wÀ-ÿ]", "", palavra_escolhida).strip().split()[0]
 
         return Topico(
             numero_cluster=numero_cluster,

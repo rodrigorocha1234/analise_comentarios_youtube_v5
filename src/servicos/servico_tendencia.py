@@ -27,9 +27,11 @@ class ServicoTendencia:
     ) -> None:
         self.configuracao = configuracao
         self.armazenamento = armazenamento
-        self.publicador = publicador
-        self.calculador = CalculadorTendencia(self.configuracao.janelas_dias)
         self.tratador_stopword = TratadorStopword(self.configuracao.stopwords_adicionais)
+        self.calculador = CalculadorTendencia(
+            self.configuracao.janelas_dias,
+            tratador_stopword=self.tratador_stopword,
+        )
 
     def persistir_tendencias(self, tendencias: List[RegistroTendencia], data_coleta: str) -> bool:
         """Separa e grava registros de tendência no MinIO de acordo com seus respectivos escopos."""

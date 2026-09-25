@@ -13,6 +13,7 @@ from src.agrupadores.agrupador_minibatch import AgrupadorMinibatch
 from src.agrupadores.agrupador_optics import AgrupadorOptics
 from src.agrupadores.estrategia_agrupamento import EstrategiaAgrupamento
 from src.dominio.configuracao_projeto import ConfiguracaoProjeto
+from src.processamento.tratador_stopword import TratadorStopword
 
 
 class FabricaAgrupador:
@@ -42,9 +43,12 @@ class FabricaAgrupador:
         """Cria e devolve a estratégia correspondente com base no nome e nas configurações."""
         nome = nome_algoritmo.lower().strip()
         if nome in ("bertopic",):
+            tratador = TratadorStopword(self.configuracao.stopwords_adicionais)
             return AgrupadorBertopic(
                 top_n_words=self.configuracao.top_n_palavras_bertopic,
-                stopwords=self.configuracao.stopwords_adicionais,
+                ngram_min=1,
+                ngram_max=1,
+                stopwords=list(tratador.obter_stopwords()),
             )
         if nome in ("kmeans",):
             return AgrupadorKmeans(n_clusters=10, random_state=42)

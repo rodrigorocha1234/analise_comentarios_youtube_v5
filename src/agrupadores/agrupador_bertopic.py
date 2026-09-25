@@ -56,9 +56,9 @@ class AgrupadorBertopic(EstrategiaAgrupamento):
             prediction_data=True,
         )
 
-        # CountVectorizer com max_df=1.0 para compatibilidade com c-TF-IDF em poucos tópicos
+        # CountVectorizer com ngram_range=(1, 1) para garantir exclusivamente PALAVRAS ÚNICAS
         self.vetorizador = CountVectorizer(
-            ngram_range=(ngram_min, ngram_max),
+            ngram_range=(1, 1),
             min_df=min_df,
             max_df=1.0 if max_df < 1.0 else max_df,
             stop_words=stopwords,

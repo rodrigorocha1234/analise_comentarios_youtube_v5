@@ -1,21 +1,27 @@
 import collections
 from datetime import datetime, timedelta, timezone
 import logging
-from typing import Dict, List, Tuple
+import re
+from typing import Dict, List, Optional, Tuple
 import numpy as np
-import pandas as pd
 
 from src.dominio.agrupamento import Agrupamento
 from src.dominio.registro_tendencia import RegistroTendencia
+from src.processamento.tratador_stopword import TratadorStopword
 
 logger = logging.getLogger(__name__)
 
 
 class CalculadorTendencia:
-    """Calcula Trend Topics temporais com janelas móveis em três escopos distintos."""
+    """Calcula Trend Topics temporais com palavras únicas e sem stopwords em três escopos."""
 
-    def __init__(self, janelas_dias: List[int]) -> None:
+    def __init__(
+        self,
+        janelas_dias: List[int],
+        tratador_stopword: Optional[TratadorStopword] = None,
+    ) -> None:
         self.janelas_dias = janelas_dias
+        self.tratador_stopword = tratador_stopword or TratadorStopword([])
 
     def calcular_score(
         self,
@@ -48,7 +54,7 @@ class CalculadorTendencia:
     def calcular_tendencias(
         self, agrupamentos: List[Agrupamento], data_referencia: str = ""
     ) -> List[RegistroTendencia]:
-        """Calcula métricas e scores de tendências nos 3 escopos para todas as janelas configuradas."""
+        """Calcula métricas e scores de tendências garantindo palavras únicas e sem stopwords."""
         if not agrupamentos:
             return []
 
@@ -71,11 +77,23 @@ class CalculadorTendencia:
         mapa_canal_video: Dict[str, List[Agrupamento]] = collections.defaultdict(list)
 
         for agr in agrupamentos:
-            if agr.numero_cluster >= 0:  # Ignora ruído para tendências
-                mapa_video[agr.id_video].append(agr)
-                mapa_canal[agr.id_canal].append(agr)
-                chave_cv = f"{agr.id_canal}#{agr.id_video}"
-                mapa_canal_video[chave_cv].append(agr)
+            # Ignora ruído e termos nulos/vazios para tendências
+            if agr.numero_cluster < 0 or not agr.topico:
+                continue
+
+            # Garante rigorosamente uma palavra única e sem pontuação
+            topico_limpo = re.sub(r"[^\wÀ-ÿ]", "", agr.topico).strip().split()[0] if agr.topico else ""
+            if not topico_limpo or self.tratador_stopword.verificar_stopword(topico_limpo):
+                continue
+
+            import dataclasses
+
+            # Registra com o tópico validado como palavra única
+            agr_ajustado = dataclasses.replace(agr, topico=topico_limpo)
+            mapa_video[agr.id_video].append(agr_ajustado)
+            mapa_canal[agr.id_canal].append(agr_ajustado)
+            chave_cv = f"{agr.id_canal}#{agr.id_video}"
+            mapa_canal_video[chave_cv].append(agr_ajustado)
 
         for vid_id, lista in mapa_video.items():
             escopos_definidos.append(("video", vid_id, lista))
@@ -102,6 +120,11 @@ class CalculadorTendencia:
                 registros_janela: List[RegistroTendencia] = []
 
                 for num_cluster, nome_topico in todos_topicos:
+                    # Assegura que o tópico da trend seja uma palavra única
+                    topico_final = re.sub(r"[^\wÀ-ÿ]", "", nome_topico).strip().split()[0] if nome_topico else ""
+                    if not topico_final or self.tratador_stopword.verificar_stopword(topico_final):
+                        continue
+
                     vol_atual = contagem_atual.get((num_cluster, nome_topico), 0)
                     vol_ant = contagem_anterior.get((num_cluster, nome_topico), 0)
 
@@ -117,7 +140,7 @@ class CalculadorTendencia:
                         identificador_escopo=id_escopo,
                         janela_dias=janela,
                         data_coleta=data_coleta_str,
-                        topico=nome_topico,
+                        topico=topico_final,
                         numero_cluster=num_cluster,
                         volume_atual=vol_atual,
                         volume_anterior=vol_ant,
