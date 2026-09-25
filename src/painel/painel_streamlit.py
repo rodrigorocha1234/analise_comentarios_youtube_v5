@@ -334,20 +334,84 @@ class PainelStreamlit:
                     for _, resp in respostas.iterrows():
                         st.markdown(f"> **{resp.get('autor', 'Anônimo')}:** {resp.get('texto_original')}")
 
+    def gerar_nuvem(self, frequencias: Dict[str, int]) -> Optional[object]:
+        """Gera uma figura Matplotlib contendo a nuvem de palavras estilizada."""
+        if not frequencias:
+            return None
+        try:
+            from wordcloud import WordCloud
+            import matplotlib.pyplot as plt
+
+            wc = WordCloud(
+                width=1000,
+                height=460,
+                background_color="#0e1117",
+                colormap="plasma",
+                max_words=100,
+                prefer_horizontal=0.85,
+            ).generate_from_frequencies(frequencias)
+
+            fig, ax = plt.subplots(figsize=(10, 4.6), facecolor="#0e1117")
+            ax.imshow(wc, interpolation="bilinear")
+            ax.axis("off")
+            fig.tight_layout(pad=0)
+            return fig
+        except Exception as erro:
+            logger.warning("Falha ao gerar nuvem de palavras: %s", erro)
+            return None
+
     def renderizar_nuvens(self) -> None:
-        """Aba 9: Nuvem de Palavras."""
-        st.subheader("☁️ Nuvens de Frequência de Palavras")
+        """Aba 9: Nuvem de Palavras com visualização gráfica interativa."""
+        st.subheader("☁️ Nuvem de Palavras e Frequências Lexicais")
         try:
             chaves = self.armazenamento.listar_objetos("gold/nuvens_palavras/")
             chaves_json = [c for c in chaves if c.endswith(".json")]
-            if chaves_json:
-                conteudo = self.armazenamento.ler_objeto(chaves_json[-1])
-                dados = json.loads(conteudo.decode("utf-8"))
-                for categoria, freq in dados.items():
-                    with st.expander(f"Frequências - {categoria}"):
-                        st.json(freq)
+            if not chaves_json:
+                st.info("Nenhuma frequência de palavras persistida ainda na camada Gold.")
+                return
+
+            conteudo = self.armazenamento.ler_objeto(chaves_json[-1])
+            dados = json.loads(conteudo.decode("utf-8"))
+            if not isinstance(dados, dict) or not dados:
+                st.info("Arquivo de frequências vazio.")
+                return
+
+            # Formata opções amigáveis para seleção de categoria
+            mapa_categorias: Dict[str, str] = {}
+            for cat in dados.keys():
+                if cat == "global":
+                    rotulo = "🌐 Visão Global (Todos os Comentários)"
+                elif cat.startswith("canal_"):
+                    c_id = cat.replace("canal_", "")
+                    nome_c = self.mapa_canais.get(c_id, c_id)
+                    rotulo = f"📺 Canal: {nome_c}"
+                elif cat.startswith("topico_"):
+                    nome_t = cat.replace("topico_", "")
+                    rotulo = f"🏷️ Tópico: {nome_t}"
+                else:
+                    rotulo = f"📁 {cat}"
+                mapa_categorias[rotulo] = cat
+
+            escolha = st.selectbox("Selecione o Escopo para Visualização da Nuvem", list(mapa_categorias.keys()))
+            categoria_sel = mapa_categorias[escolha]
+            freq_dados = dados.get(categoria_sel, {})
+
+            if freq_dados and isinstance(freq_dados, dict):
+                freq_int = {str(k): int(v) for k, v in freq_dados.items() if int(v) > 0}
+                fig = self.gerar_nuvem(freq_int)
+                if fig is not None:
+                    st.pyplot(fig, use_container_width=True)
+                else:
+                    st.warning("Não foi possível gerar a imagem da nuvem de palavras.")
+
+                st.markdown("#### 📊 Termos de Maior Destaque")
+                serie_freq = pd.Series(freq_int).sort_values(ascending=False).head(15)
+                st.bar_chart(serie_freq, horizontal=True)
+
+                with st.expander(f"Ver Frequências Brutas ({escolha})"):
+                    st.json(freq_dados)
             else:
-                st.info("Nenhuma frequência de palavras persistida ainda.")
+                st.info("Sem frequências disponíveis para a categoria selecionada.")
         except Exception as erro:
             logger.warning("Erro ao carregar nuvens de palavras: %s", erro)
             st.warning(f"Erro ao carregar nuvens de palavras: {erro}")
